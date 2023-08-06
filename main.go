@@ -58,10 +58,10 @@ func main() {
 		}
 
 		matchKillData := gameKillRegex.FindStringSubmatch(line)
-		if len(matchKillData) > 1 {
+		if len(matchKillData) > 0 {
 			gameData.WriteString(line + "\n")
 		}
-	}
+	} // O(n) - n log data size
 
 	close(games)
 
