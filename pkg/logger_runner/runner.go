@@ -3,6 +3,7 @@ package logger_runner
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -11,14 +12,17 @@ import (
 	"sync/atomic"
 
 	"github.com/castmetal/cloudwalk-tests-quake-game-log/pkg/reports"
+	"github.com/gosuri/uiprogress"
 )
 
 const (
-	CONSUMERS         = 20
-	INIT_GAME_REGEX   = `^.*(\d+:\d+) InitGame:.*$`
-	KILL_REGEX        = `^.*(\d+:\d+) Kill: .*$`
-	KILL_REMOVE_REGEX = `^\d+:\d+ Kill: \d+ \d+ \d+: `
-	WORLD_PLAYER_ID   = `<world>`
+	CONSUMERS                = 20
+	INIT_GAME_REGEX          = `^.*(\d+:\d+) InitGame:.*$`
+	KILL_REGEX               = `^.*(\d+:\d+) Kill: .*$`
+	KILL_REMOVE_REGEX        = `^\d+:\d+ Kill: \d+ \d+ \d+: `
+	WORLD_PLAYER_ID          = `<world>`
+	DEATHS_REPORT_FILE_NAME  = `deaths_report.json`
+	GROUPED_REPORT_FILE_NAME = `grouped_report.json`
 )
 
 type LoggerRunner struct {
@@ -28,11 +32,14 @@ type LoggerRunner struct {
 	TotalProcessedItems int32
 	TotalItemsToProcess int32
 	PlayerData          map[string]map[string]bool
+	TotalGames          int
+	bar                 *uiprogress.Bar
 }
 
 type RunnerResponse struct {
-	DeathsReport  *reports.DeathsReport
-	GroupedReport *reports.GroupedReport
+	DeathsReport  reports.DeathsReport
+	GroupedReport reports.GroupedReport
+	TotalGames    int
 }
 
 type KillGameData struct {
@@ -47,7 +54,7 @@ type PlayerKilledData struct {
 }
 
 // NewLoggerRunner - Get a LoggerRunner to Execute
-func NewLoggerRunner() *LoggerRunner {
+func NewLoggerRunner(bar *uiprogress.Bar) *LoggerRunner {
 	return &LoggerRunner{
 		DeathsReport:        make(reports.DeathsReport, 0),
 		GroupedReport:       make(reports.GroupedReport, 0),
@@ -55,6 +62,7 @@ func NewLoggerRunner() *LoggerRunner {
 		TotalProcessedItems: 0,
 		TotalItemsToProcess: 0,
 		PlayerData:          make(map[string]map[string]bool, 0),
+		bar:                 bar,
 	}
 }
 
@@ -77,6 +85,8 @@ func (r *LoggerRunner) Run(ctx context.Context, logPath string) (*RunnerResponse
 	}
 	defer file.Close()
 
+	r.IncBarStep() // File Opened
+
 	scanner := bufio.NewScanner(file)
 	gameKillRegex := regexp.MustCompile(KILL_REGEX)
 	gameInitRegex := regexp.MustCompile(INIT_GAME_REGEX)
@@ -86,9 +96,18 @@ func (r *LoggerRunner) Run(ctx context.Context, logPath string) (*RunnerResponse
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		matchShutdownGame := gameInitRegex.FindStringSubmatch(line)
-		if len(matchShutdownGame) > 0 {
+		matchInitGame := gameInitRegex.FindStringSubmatch(line)
+		if len(matchInitGame) > 0 {
 			gameNumber++
+
+			game := KillGameData{
+				GameNumber: gameNumber,
+				Data:       line,
+			}
+
+			killData <- game
+
+			totalItemsToProcess++
 			continue
 		}
 
@@ -105,8 +124,11 @@ func (r *LoggerRunner) Run(ctx context.Context, logPath string) (*RunnerResponse
 		}
 	}
 
+	r.IncBarStep() // Reading Data Step
+
 	r.mu.Lock()
 	r.TotalItemsToProcess = totalItemsToProcess
+	r.TotalGames = gameNumber
 	r.mu.Unlock()
 
 	close(killData)
@@ -116,12 +138,23 @@ func (r *LoggerRunner) Run(ctx context.Context, logPath string) (*RunnerResponse
 		case <-ctx.Done():
 			return &RunnerResponse{}, fmt.Errorf("ctx_canceled")
 		case <-done:
+			r.IncBarStep() // Given response data
+
 			return &RunnerResponse{
-				DeathsReport:  &r.DeathsReport,
-				GroupedReport: &r.GroupedReport,
+				DeathsReport:  r.DeathsReport,
+				GroupedReport: r.GroupedReport,
+				TotalGames:    gameNumber,
 			}, nil
 		}
 	}
+}
+
+func (r *LoggerRunner) IncBarStep() {
+	if r.bar == nil {
+		return
+	}
+
+	r.bar.Incr()
 }
 
 func (r *LoggerRunner) addProcessedItems() {
@@ -146,6 +179,13 @@ func (r *LoggerRunner) processKillData(ctx context.Context, killData <-chan Kill
 
 			gameStr := fmt.Sprintf("game-%d", killGameData.GameNumber)
 			r.initReportMaps(gameStr)
+
+			gameInitRegex := regexp.MustCompile(INIT_GAME_REGEX)
+			matchInitGame := gameInitRegex.FindStringSubmatch(killGameData.Data)
+			if len(matchInitGame) > 0 {
+				r.addProcessedItems()
+				continue
+			}
 
 			playerKilledData := r.getPlayerKilledData(killGameData.Data)
 
@@ -202,6 +242,9 @@ func (r *LoggerRunner) initReportMaps(gameStr string) {
 		r.DeathsReport[gameStr] = reports.Game{
 			KillsByMeans: mapModMeans,
 		}
+	}
+
+	if r.GroupedReport[gameStr].Kills == nil {
 		mapKills := make(map[string]int32, 0) // Init kills
 		r.GroupedReport[gameStr] = reports.GroupedInformationReport{
 			Kills:   mapKills,
@@ -243,4 +286,18 @@ func (r *LoggerRunner) getPlayerKilledData(killLogLine string) *PlayerKilledData
 		KillerPlayer: strings.TrimSpace(killerPlayer),
 		DeadPlayer:   strings.TrimSpace(deadPlayer),
 	}
+}
+
+func (r *LoggerRunner) SaveReports(filePath string) {
+	path := filePath
+
+	if string(path[len(path)-1]) != "/" {
+		path = path + "/"
+	}
+
+	file, _ := json.MarshalIndent(r.DeathsReport, "", " ")
+	_ = os.WriteFile(path+DEATHS_REPORT_FILE_NAME, file, 0644)
+
+	file, _ = json.MarshalIndent(r.GroupedReport, "", " ")
+	_ = os.WriteFile(path+GROUPED_REPORT_FILE_NAME, file, 0644)
 }

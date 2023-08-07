@@ -47,7 +47,7 @@ func TestKillData(t *testing.T) {
 
 	for _, tc := range testCase {
 		t.Run(tc.description, func(t *testing.T) {
-			logger := NewLoggerRunner()
+			logger := NewLoggerRunner(nil)
 
 			killedPlayerData := logger.getPlayerKilledData(tc.input)
 			if tc.expected.Mod != killedPlayerData.Mod {
@@ -275,25 +275,23 @@ func TestRun(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 
-			logger := NewLoggerRunner()
+			logger := NewLoggerRunner(nil)
 			runnerResponse, err := logger.Run(ctx, tc.input)
 			if err != nil {
 				t.Errorf("runner error => %v", err)
 			}
 
-			groupReportGame := *runnerResponse.GroupedReport
-
-			if groupReportGame[tc.expectedGame].TotalKills != tc.expectedReports.GroupedReport[tc.expectedGame].TotalKills {
-				t.Errorf("invalid_total_kills() : expected %d, got => %d", groupReportGame[tc.expectedGame].TotalKills, tc.expectedReports.GroupedReport[tc.expectedGame].TotalKills)
+			if runnerResponse.GroupedReport[tc.expectedGame].TotalKills != tc.expectedReports.GroupedReport[tc.expectedGame].TotalKills {
+				t.Errorf("invalid_total_kills() : expected %d, got => %d", runnerResponse.GroupedReport[tc.expectedGame].TotalKills, tc.expectedReports.GroupedReport[tc.expectedGame].TotalKills)
 			}
 
 			for playerName, kills := range tc.expectedReports.GroupedReport[tc.expectedGame].Kills {
-				if groupReportGame[tc.expectedGame].Kills[playerName] != kills {
-					t.Errorf("%s Kills is different for %s: expected %d, got => %d", playerName, tc.expectedGame, kills, groupReportGame[tc.expectedGame].Kills[playerName])
+				if runnerResponse.GroupedReport[tc.expectedGame].Kills[playerName] != kills {
+					t.Errorf("%s Kills is different for %s: expected %d, got => %d", playerName, tc.expectedGame, kills, runnerResponse.GroupedReport[tc.expectedGame].Kills[playerName])
 				}
 			}
 
-			deathReportGame := *runnerResponse.DeathsReport
+			deathReportGame := runnerResponse.DeathsReport
 
 			for mod, totalKills := range deathReportGame[tc.expectedGame].KillsByMeans {
 				if tc.expectedReports.DeathsReport[tc.expectedGame].KillsByMeans[mod] != totalKills {

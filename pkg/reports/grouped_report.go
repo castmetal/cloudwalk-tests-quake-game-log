@@ -4,7 +4,7 @@ package reports
 type GroupedReport map[string]GroupedInformationReport
 
 type GroupedInformationReport struct {
-	TotalKills int32
-	Players    []string
-	Kills      map[string]int32
+	TotalKills int32            `json:"total_kills"`
+	Players    []string         `json:"players"`
+	Kills      map[string]int32 `json:"kills"`
 }
