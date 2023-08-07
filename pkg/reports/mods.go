@@ -3,7 +3,6 @@ package reports
 import (
 	"encoding/json"
 	"fmt"
-	"sync/atomic"
 )
 
 // KillMods Kill mods provided by quake game - examples: MOD_SHOTGUN, MOD_RAILGUN, MOD_GAUNTLET
@@ -282,34 +281,4 @@ func (k KillModMeans) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(&m)
-}
-
-func (k KillModMeans) AddDeath(mod KillMods) error {
-	modType := mod.GetStrModByType()
-	if modType == "" {
-		return fmt.Errorf(DEFAULT_KILLMOD_ERROR)
-	}
-
-	addData := k[mod]
-
-	atomic.AddInt32(&addData, 1)
-
-	k[mod] = addData
-
-	return nil
-}
-
-func (k KillModMeans) RemoveDeath(mod KillMods) error {
-	modType := mod.GetStrModByType()
-	if modType == "" {
-		return fmt.Errorf(DEFAULT_KILLMOD_ERROR)
-	}
-
-	removeData := k[mod]
-
-	atomic.AddInt32(&removeData, -1)
-
-	k[mod] = removeData
-
-	return nil
 }

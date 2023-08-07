@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -13,19 +14,25 @@ import (
 )
 
 const (
-	CONSUMERS       = 20
-	INIT_GAME_REGEX = `^.*(\d+:\d+) InitGame: .*$`
+	CONSUMERS         = 20
+	INIT_GAME_REGEX   = `^.*(\d+:\d+) InitGame:.*$`
+	KILL_REGEX        = `^.*(\d+:\d+) Kill: .*$`
+	KILL_REMOVE_REGEX = `^\d+:\d+ Kill: \d+ \d+ \d+: `
+	WORLD_PLAYER_ID   = `<world>`
 )
 
 type LoggerRunner struct {
 	DeathsReport        reports.DeathsReport
+	GroupedReport       reports.GroupedReport
 	mu                  sync.Mutex
 	TotalProcessedItems int32
 	TotalItemsToProcess int32
+	PlayerData          map[string]map[string]bool
 }
 
 type RunnerResponse struct {
-	DeathsReport *reports.DeathsReport
+	DeathsReport  *reports.DeathsReport
+	GroupedReport *reports.GroupedReport
 }
 
 type KillGameData struct {
@@ -33,15 +40,28 @@ type KillGameData struct {
 	Data       string
 }
 
+type PlayerKilledData struct {
+	KillerPlayer string
+	Mod          reports.KillMods
+	DeadPlayer   string
+}
+
+// NewLoggerRunner - Get a LoggerRunner to Execute
 func NewLoggerRunner() *LoggerRunner {
 	return &LoggerRunner{
 		DeathsReport:        make(reports.DeathsReport, 0),
+		GroupedReport:       make(reports.GroupedReport, 0),
 		mu:                  sync.Mutex{},
 		TotalProcessedItems: 0,
 		TotalItemsToProcess: 0,
+		PlayerData:          make(map[string]map[string]bool, 0),
 	}
 }
 
+// Run - Run a logger and get a response containing AllReports - T O(n) - n log data size - S O (n*m)
+//   - Input - ctx:  context.Context
+//   - Input - ctx:  logPath string
+//   - Response - RunnerResponse:  response struct with all generated reports
 func (r *LoggerRunner) Run(ctx context.Context, logPath string) (*RunnerResponse, error) {
 	killData := make(chan KillGameData, CONSUMERS)
 	done := make(chan bool, 1)
@@ -58,27 +78,15 @@ func (r *LoggerRunner) Run(ctx context.Context, logPath string) (*RunnerResponse
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
+	gameKillRegex := regexp.MustCompile(KILL_REGEX)
 	gameInitRegex := regexp.MustCompile(INIT_GAME_REGEX)
-	gameKillRegex := regexp.MustCompile(`^.*(\d+:\d+) Kill: .*$`)
-	gameFinishRegex := regexp.MustCompile(`^.*(\d+:\d+) ShutdownGame:.*$`)
 	gameNumber := 0
 	var totalItemsToProcess int32
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		matchInitGame := gameInitRegex.FindStringSubmatch(line)
-		if len(matchInitGame) > 0 {
-			game := KillGameData{
-				GameNumber: gameNumber,
-				Data:       line,
-			}
 
-			killData <- game
-			totalItemsToProcess++
-			continue
-		}
-
-		matchShutdownGame := gameFinishRegex.FindStringSubmatch(line)
+		matchShutdownGame := gameInitRegex.FindStringSubmatch(line)
 		if len(matchShutdownGame) > 0 {
 			gameNumber++
 			continue
@@ -86,7 +94,6 @@ func (r *LoggerRunner) Run(ctx context.Context, logPath string) (*RunnerResponse
 
 		matchKillData := gameKillRegex.FindStringSubmatch(line)
 		if len(matchKillData) > 0 {
-
 			game := KillGameData{
 				GameNumber: gameNumber,
 				Data:       line,
@@ -96,7 +103,7 @@ func (r *LoggerRunner) Run(ctx context.Context, logPath string) (*RunnerResponse
 
 			totalItemsToProcess++
 		}
-	} // O(n) - n log data size
+	}
 
 	r.mu.Lock()
 	r.TotalItemsToProcess = totalItemsToProcess
@@ -110,7 +117,8 @@ func (r *LoggerRunner) Run(ctx context.Context, logPath string) (*RunnerResponse
 			return &RunnerResponse{}, fmt.Errorf("ctx_canceled")
 		case <-done:
 			return &RunnerResponse{
-				DeathsReport: &r.DeathsReport,
+				DeathsReport:  &r.DeathsReport,
+				GroupedReport: &r.GroupedReport,
 			}, nil
 		}
 	}
@@ -126,6 +134,7 @@ func (r *LoggerRunner) processKillData(ctx context.Context, killData <-chan Kill
 		case <-ctx.Done():
 			return fmt.Errorf("ctx_canceled")
 		case killGameData, ok := <-killData:
+			// Consume till TotalProcessedItems = TotalItemsToProcess
 			if !ok && r.TotalProcessedItems != r.TotalItemsToProcess {
 				continue
 			}
@@ -136,21 +145,102 @@ func (r *LoggerRunner) processKillData(ctx context.Context, killData <-chan Kill
 			}
 
 			gameStr := fmt.Sprintf("game-%d", killGameData.GameNumber)
-			gameInitRegex := regexp.MustCompile(INIT_GAME_REGEX)
-			matchInitGame := gameInitRegex.FindStringSubmatch(killGameData.Data)
-			if len(matchInitGame) > 0 {
-				mapModMeans := make(map[reports.KillMods]int32, 0) // Init kill mods
-				r.DeathsReport[gameStr] = reports.Game{
-					KillsByMeans: mapModMeans,
-				}
+			r.initReportMaps(gameStr)
 
-				r.addProcessedItems()
-				continue
+			playerKilledData := r.getPlayerKilledData(killGameData.Data)
+
+			r.mu.Lock()
+			r.DeathsReport[gameStr].KillsByMeans[playerKilledData.Mod]++
+
+			if r.PlayerData[gameStr] == nil {
+				mapPlayerFoundedByGame := make(map[string]bool, 0)
+				r.PlayerData[gameStr] = mapPlayerFoundedByGame
 			}
 
-			fmt.Println(killGameData.Data)
+			r.assignPlayerToList(gameStr, playerKilledData.KillerPlayer)
+			r.assignPlayerToList(gameStr, playerKilledData.DeadPlayer)
 
+			groupedEntry := r.GroupedReport[gameStr]
+			groupedEntry.TotalKills++
+
+			if playerKilledData.KillerPlayer != WORLD_PLAYER_ID {
+				groupedEntry.Kills[playerKilledData.KillerPlayer]++
+			} else {
+				groupedEntry.Kills[playerKilledData.DeadPlayer]--
+			}
+
+			r.GroupedReport[gameStr] = groupedEntry
+
+			r.mu.Unlock()
 			r.addProcessedItems()
 		}
+	}
+}
+
+func (r *LoggerRunner) assignPlayerToList(gameStr string, playerId string) {
+	if playerId == WORLD_PLAYER_ID {
+		return
+	}
+
+	groupedEntry := r.GroupedReport[gameStr]
+	if r.PlayerData[gameStr][playerId] == false {
+		r.PlayerData[gameStr][playerId] = true
+		groupedEntry.Players = append(groupedEntry.Players, playerId)
+	}
+
+	if groupedEntry.Kills[playerId] == 0 {
+		groupedEntry.Kills[playerId] = 0
+	}
+
+	r.GroupedReport[gameStr] = groupedEntry
+}
+
+func (r *LoggerRunner) initReportMaps(gameStr string) {
+	r.mu.Lock()
+	if r.DeathsReport[gameStr].KillsByMeans == nil {
+		mapModMeans := make(map[reports.KillMods]int32, 0) // Init kill mods
+		r.DeathsReport[gameStr] = reports.Game{
+			KillsByMeans: mapModMeans,
+		}
+		mapKills := make(map[string]int32, 0) // Init kills
+		r.GroupedReport[gameStr] = reports.GroupedInformationReport{
+			Kills:   mapKills,
+			Players: make([]string, 0),
+		}
+	}
+	r.mu.Unlock()
+}
+
+func (r *LoggerRunner) getPlayerKilledData(killLogLine string) *PlayerKilledData {
+	str := strings.TrimSpace(killLogLine)
+	regex := regexp.MustCompile(KILL_REMOVE_REGEX)
+	replacedString := regex.ReplaceAllString(str, "")
+
+	divideStr := strings.Split(replacedString, " ")
+
+	killerPlayer := ""
+	deadPlayer := ""
+	foundKiller := false
+	for i := 0; i < len(divideStr)-2; i++ {
+		if divideStr[i] == "killed" {
+			foundKiller = true
+			continue
+		}
+
+		if foundKiller == false {
+			killerPlayer += " " + divideStr[i]
+			continue
+		}
+
+		deadPlayer += " " + divideStr[i]
+	}
+
+	var killMod reports.KillMods
+	killMod = killMod.GetModByString(divideStr[len(divideStr)-1])
+
+	return &PlayerKilledData{
+		Mod:          killMod,
+		KillerPlayer: strings.TrimSpace(killerPlayer),
+		DeadPlayer:   strings.TrimSpace(deadPlayer),
 	}
 }

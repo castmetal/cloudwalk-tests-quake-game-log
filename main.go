@@ -18,7 +18,7 @@ func main() {
 		fmt.Println(err)
 	}
 
-	data := *runnerReponse.DeathsReport
+	data := *runnerReponse.GroupedReport
 
-	fmt.Println(data["game-1"])
+	fmt.Println(data["game-2"])
 }
