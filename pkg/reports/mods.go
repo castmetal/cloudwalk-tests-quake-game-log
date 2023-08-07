@@ -3,6 +3,7 @@ package reports
 import (
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 )
 
 // KillMods Kill mods provided by quake game - examples: MOD_SHOTGUN, MOD_RAILGUN, MOD_GAUNTLET
@@ -13,6 +14,8 @@ const (
 	MOD_RAILGUN
 	MOD_GAUNTLET
 )
+
+const DEFAULT_KILLMOD_ERROR = "invalid_killmod"
 
 func (v KillMods) GetModByString(str string) KillMods {
 	switch str {
@@ -60,7 +63,7 @@ func (v KillMods) MarshalJSON() ([]byte, error) {
 	modStr := v.GetStrModByType()
 
 	if modStr == "" {
-		return []byte{}, fmt.Errorf("killmod type is invalid")
+		return []byte{}, fmt.Errorf(DEFAULT_KILLMOD_ERROR)
 	}
 
 	return []byte(modStr), nil
@@ -84,18 +87,48 @@ func (v KillMods) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &v)
 }
 
-type KillModMeans map[KillMods]int
+type KillModMeans map[KillMods]int32
 
 func (k KillModMeans) MarshalJSON() ([]byte, error) {
-	m := make(map[string]int, 0)
+	m := make(map[string]int32, 0)
 	for mod, deaths := range k {
 		modStr := mod.GetStrModByType()
 		if modStr == "" {
-			return []byte{}, fmt.Errorf("invalid_killmod")
+			return []byte{}, fmt.Errorf(DEFAULT_KILLMOD_ERROR)
 		}
 
 		m[modStr] = deaths
 	}
 
 	return json.Marshal(&m)
+}
+
+func (k KillModMeans) AddDeath(mod KillMods) error {
+	modType := mod.GetStrModByType()
+	if modType == "" {
+		return fmt.Errorf(DEFAULT_KILLMOD_ERROR)
+	}
+
+	addData := k[mod]
+
+	atomic.AddInt32(&addData, 1)
+
+	k[mod] = addData
+
+	return nil
+}
+
+func (k KillModMeans) RemoveDeath(mod KillMods) error {
+	modType := mod.GetStrModByType()
+	if modType == "" {
+		return fmt.Errorf(DEFAULT_KILLMOD_ERROR)
+	}
+
+	removeData := k[mod]
+
+	atomic.AddInt32(&removeData, -1)
+
+	k[mod] = removeData
+
+	return nil
 }

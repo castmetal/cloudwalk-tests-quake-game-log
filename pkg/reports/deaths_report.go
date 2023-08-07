@@ -10,7 +10,7 @@ type Game struct {
 }
 
 type GameStr struct {
-	KillsByMeans map[string]int `json:"kills_by_means"`
+	KillsByMeans map[string]int32 `json:"kills_by_means"`
 }
 
 func (r *DeathsReport) UnmarshalJSON(d []byte) error {
@@ -25,7 +25,7 @@ func (r *DeathsReport) UnmarshalJSON(d []byte) error {
 	}
 
 	for game, kills := range gamesStr {
-		killsByMeans := make(map[KillMods]int, 0)
+		killsByMeans := make(map[KillMods]int32, 0)
 
 		for item, deaths := range kills.KillsByMeans {
 			killMean := kMod.GetModByString(item)

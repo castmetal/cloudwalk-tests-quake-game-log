@@ -10,7 +10,7 @@ func TestDeathsReportInterface(t *testing.T) {
 	testCases := []struct {
 		description string
 		reportInput string
-		expected    int
+		expected    int32
 	}{
 		{
 			description: "Testing marshalling report input and if it's given the MOD_SHOTGUN with the same value",
