@@ -33,10 +33,6 @@ type KillGameData struct {
 	Data       string
 }
 
-func (r *LoggerRunner) AddProcessedItems() {
-	atomic.AddInt32(&r.TotalProcessedItems, 1)
-}
-
 func NewLoggerRunner() *LoggerRunner {
 	return &LoggerRunner{
 		DeathsReport:        make(reports.DeathsReport, 0),
@@ -120,6 +116,10 @@ func (r *LoggerRunner) Run(ctx context.Context, logPath string) (*RunnerResponse
 	}
 }
 
+func (r *LoggerRunner) addProcessedItems() {
+	atomic.AddInt32(&r.TotalProcessedItems, 1)
+}
+
 func (r *LoggerRunner) processKillData(ctx context.Context, killData <-chan KillGameData, done chan bool) error {
 	for {
 		select {
@@ -144,13 +144,13 @@ func (r *LoggerRunner) processKillData(ctx context.Context, killData <-chan Kill
 					KillsByMeans: mapModMeans,
 				}
 
-				r.AddProcessedItems()
+				r.addProcessedItems()
 				continue
 			}
 
 			fmt.Println(killGameData.Data)
 
-			r.AddProcessedItems()
+			r.addProcessedItems()
 		}
 	}
 }
