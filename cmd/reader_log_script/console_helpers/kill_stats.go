@@ -139,19 +139,23 @@ func PrintDeathsStats(gameNumber int, runnerResponse *logger_runner.RunnerRespon
 
 	deathsReport := runnerResponse.DeathsReport[fmt.Sprintf("game-%d", gameNumber)]
 
-	statData := StatData[reports.KillModMeans]{
-		Data: deathsReport.KillsByMeans,
+	killsByMeans := ""
+	mostKillMod := ""
+	totalKills := ""
+	if len(deathsReport.KillsByMeans) > 0 {
+		statData := StatData[reports.KillModMeans]{
+			Data: deathsReport.KillsByMeans,
+		}
+		killsByMeans = DivideStats(statData)
+		mostKillMod = GetMostKillMean(deathsReport.KillsByMeans).GetStrModByType()
+		totalKills = fmt.Sprintf("%d", GetTotalKillsByMeans(deathsReport.KillsByMeans))
 	}
-
-	killsByMeans := DivideStats(statData)
-	mostKillMod := GetMostKillMean(deathsReport.KillsByMeans)
-	totalKills := GetTotalKillsByMeans(deathsReport.KillsByMeans)
 
 	r := []*simpletable.Cell{
 		{Align: simpletable.AlignCenter, Text: fmt.Sprintf("%d", gameNumber)},
 		{Align: simpletable.AlignLeft, Text: killsByMeans},
-		{Align: simpletable.AlignCenter, Text: mostKillMod.GetStrModByType()},
-		{Align: simpletable.AlignRight, Text: fmt.Sprintf("%d", totalKills)},
+		{Align: simpletable.AlignCenter, Text: mostKillMod},
+		{Align: simpletable.AlignRight, Text: totalKills},
 	}
 
 	tableGroupedReport.Body.Cells = append(tableGroupedReport.Body.Cells, r)
