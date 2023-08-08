@@ -9,4 +9,4 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./build/bin/ ./cmd/...
 FROM alpine:latest AS script
 WORKDIR /
 COPY --from=builder /src/reader_log_script/build/bin/ .
-ENTRYPOINT ["./reader_log_script reader_log_script --execute=true"]
+CMD ["./reader_log_script reader_log_script --execute=true"]
