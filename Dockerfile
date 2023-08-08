@@ -4,9 +4,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN mkdir -p ./build/bin
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./build/bin/ ./cmd/...
+RUN CGO_ENABLED=0 GOOS=linux go build -o ./build/bin/ ./cmd/...
 
 FROM alpine:latest AS script
-WORKDIR /
+RUN apk --no-cache add ca-certificates tzdata
+WORKDIR /root/
 COPY --from=builder /src/reader_log_script/build/bin/ .
-CMD ["./reader_log_script reader_log_script --execute=true"]
+CMD ["./reader_log_script"]

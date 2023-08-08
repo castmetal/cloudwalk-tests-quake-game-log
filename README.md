@@ -24,7 +24,7 @@ or
 	go mod tidy
 ```
 
-## Executing as a dev mode
+## Executing as dev mode
 
 
 ```sh
@@ -33,6 +33,16 @@ or
 Run script:
 ```sh
 	go run main.go
+```
+
+## Executing as production mode
+
+```sh
+	cd cmd/reader_log_script
+```
+Run script:
+```sh
+	go run main.go reader_log_script --execute=true
 ```
 
 ## Starting using Docker
