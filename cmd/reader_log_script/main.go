@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/castmetal/cloudwalk-tests-quake-game-log/cmd/reader_log_script/console_helpers"
@@ -34,10 +35,25 @@ func main() {
 	}
 }
 
+func GetAbsPath() string {
+	path, err := os.Getwd()
+	if err != nil {
+		return "/root"
+	}
+
+	if strings.Contains(path, "/cmd") {
+		splitPath := strings.Split(path, "/cmd")
+		path = splitPath[0]
+	}
+
+	return path
+}
+
 // GetScriptCommand - Get the script command to execute
 func GetScriptCommand() *cobra.Command {
-	logPath := "../../inputs/qgames.log"
-	reportsPath := "../../reports_data/"
+	path := GetAbsPath()
+	logPath := path + "/inputs/qgames.log"
+	reportsPath := path + "/reports_data/"
 
 	return &cobra.Command{
 		Use:   "reader_log_script",
