@@ -16,6 +16,24 @@ import (
 
 const TIMEOUT_IN_MINUTES = 10
 
+func main() {
+	scriptCommand := GetScriptCommand()
+
+	scriptCommand.Flags().BoolP("execute", "e", false, "Execute script")
+
+	scriptCommand.PreRun = func(cmd *cobra.Command, args []string) {
+		execArg, _ := cmd.Flags().GetBool("execute") // If dev mode = true execute pre-run printer
+		if !execArg {
+			console_helpers.PrintPreRun()
+		}
+	}
+
+	if err := scriptCommand.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
 // GetScriptCommand - Get the script command to execute
 func GetScriptCommand() *cobra.Command {
 	logPath := "../../inputs/qgames.log"
@@ -67,23 +85,5 @@ func GetScriptCommand() *cobra.Command {
 
 			console_helpers.PrintReportsStats(runnerResponse)
 		},
-	}
-}
-
-func main() {
-	scriptCommand := GetScriptCommand()
-
-	scriptCommand.Flags().BoolP("execute", "e", false, "Execute script")
-
-	scriptCommand.PreRun = func(cmd *cobra.Command, args []string) {
-		execArg, _ := cmd.Flags().GetBool("execute") // If dev mode = true execute pre-run printer
-		if !execArg {
-			console_helpers.PrintPreRun()
-		}
-	}
-
-	if err := scriptCommand.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
 	}
 }
