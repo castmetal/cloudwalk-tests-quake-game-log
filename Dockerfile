@@ -14,4 +14,4 @@ RUN mkdir reports_data
 RUN mkdir -p cmd/reader_log_script
 COPY --from=builder /src/reader_log_script/inputs/ ./inputs/
 COPY --from=builder /src/reader_log_script/build/bin/ ./cmd/reader_log_script/
-CMD ["./cmd/reader_log_script/reader_log_script"]
+CMD ["./cmd/reader_log_script/reader_log_script", "reader_log_script", "--execute=true"]
